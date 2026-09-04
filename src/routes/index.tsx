@@ -1,152 +1,162 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
-import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ClipboardList, FileCheck2, Layers, MessageCircleQuestion } from "lucide-react";
+import type { ReactNode } from "react";
 
-import { askPolicyQuestion } from "@/lib/rag/policy.functions";
-import type { QueryResponse } from "@/lib/rag/types";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { getSystemHealth, listPolicyDocuments } from "@/lib/policy-pilot.functions";
+import { useRole } from "@/lib/role-context";
 
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "PolicyPilot — Ask your HR policies" },
-      {
-        name: "description",
-        content:
-          "Ask questions about internal HR policies and get grounded, cited answers drawn only from your uploaded policy documents.",
-      },
-      { property: "og:title", content: "PolicyPilot — Ask your HR policies" },
-      {
-        property: "og:description",
-        content: "Grounded, cited answers from your own HR policy documents. No guessing, no hallucination.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: Ask,
+  component: DashboardPage,
 });
 
-const SAMPLES = [
-  "How many paid leave days do I get per year?",
-  "What is the notice period for resignation?",
-  "Can I work remotely from another country?",
-];
+function DashboardPage() {
+  const { role } = useRole();
 
-function Ask() {
-  const [question, setQuestion] = useState("");
-  const ask = useServerFn(askPolicyQuestion);
-  const mutation = useMutation<QueryResponse, Error, string>({
-    mutationFn: (q) => ask({ data: { question: q } }),
+  const healthQuery = useQuery({
+    queryKey: ["system-health", "dashboard"],
+    queryFn: () => getSystemHealth(),
   });
+  const docsQuery = useQuery({ queryKey: ["documents"], queryFn: () => listPolicyDocuments() });
 
-  const submit = (q: string) => {
-    const value = q.trim();
-    if (!value) return;
-    setQuestion(value);
-    mutation.mutate(value);
-  };
-
-  const result = mutation.data;
+  const health = healthQuery.data;
+  const docs = docsQuery.data ?? [];
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-12">
-      <header className="mb-10 flex items-start justify-between gap-4">
+    <AppShell>
+      <div className="mx-auto max-w-5xl space-y-6">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">PolicyPilot</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Internal HR FAQ assistant. Answers come only from indexed policy documents — with citations.
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-muted-foreground">
+            Overview of your HR policy knowledge base, {role === "admin" ? "Admin" : "Employee"}.
           </p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/admin">Admin</Link>
-        </Button>
-      </header>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(question);
-        }}
-        className="space-y-3"
-      >
-        <Textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask about leave, benefits, remote work, notice periods…"
-          rows={3}
-          maxLength={1000}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" disabled={mutation.isPending || !question.trim()}>
-            {mutation.isPending ? "Searching policies…" : "Ask HR"}
-          </Button>
-          {SAMPLES.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => submit(s)}
-              className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            >
-              {s}
-            </button>
-          ))}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            icon={<ClipboardList className="h-4 w-4" />}
+            label="Documents"
+            value={health?.documents_total ?? "—"}
+            hint={`${health?.documents_indexed ?? 0} indexed`}
+          />
+          <StatCard
+            icon={<Layers className="h-4 w-4" />}
+            label="Indexed chunks"
+            value={health?.chunks_total ?? "—"}
+            hint="Across all documents"
+          />
+          <StatCard
+            icon={<FileCheck2 className="h-4 w-4" />}
+            label="Indexing errors"
+            value={health?.documents_error ?? "—"}
+            hint={health?.documents_error ? "Needs attention" : "All clear"}
+          />
+          <StatCard
+            icon={<MessageCircleQuestion className="h-4 w-4" />}
+            label="Recent questions"
+            value={health?.recent_queries.length ?? "—"}
+            hint="Last logged queries"
+          />
         </div>
-      </form>
 
-      {mutation.isError && (
-        <p className="mt-6 text-sm text-destructive">{mutation.error.message}</p>
-      )}
-
-      {result && (
-        <section className="mt-10 space-y-6">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Answer</CardTitle>
-              <Badge variant={result.status === "answered" ? "default" : "secondary"}>
-                {result.status.replace(/_/g, " ")}
-              </Badge>
+            <CardHeader>
+              <CardTitle>Get started</CardTitle>
+              <CardDescription>
+                {role === "admin"
+                  ? "Upload HR policy documents so employees can ask grounded questions."
+                  : "Ask a question and get an answer grounded in your organization's HR policies."}
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{result.answer}</p>
+            <CardContent className="flex gap-2">
+              <Button asChild>
+                <Link to="/ask">
+                  <MessageCircleQuestion className="mr-1.5 h-4 w-4" /> Ask HR
+                </Link>
+              </Button>
+              {role === "admin" && (
+                <Button variant="outline" asChild>
+                  <Link to="/admin">Upload documents</Link>
+                </Button>
+              )}
             </CardContent>
           </Card>
 
-          {result.citations.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="text-sm font-medium text-foreground">Citations</h2>
-              {result.citations.map((c) => (
-                <Card key={c.chunk_id}>
-                  <CardContent className="space-y-1 py-4">
-                    <p className="text-xs font-medium text-foreground">
-                      {c.document_name} · {c.section}
-                      {c.page_number ? ` · p.${c.page_number}` : ""}
-                    </p>
-                    <p className="text-xs leading-relaxed text-muted-foreground">{c.excerpt}</p>
-                    <p className="font-mono text-[10px] text-muted-foreground">
-                      {c.chunk_id}
-                      {typeof c.score === "number" ? ` · score ${c.score}` : ""}
-                    </p>
-                  </CardContent>
-                </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent documents</CardTitle>
+              <CardDescription>Latest additions to the policy knowledge base.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {docs.slice(0, 4).map((doc) => (
+                <div key={doc.id} className="flex items-center justify-between text-sm">
+                  <span className="truncate">{doc.filename}</span>
+                  <Badge variant={doc.status === "indexed" ? "outline" : "secondary"}>
+                    {doc.status === "indexed" ? `${doc.chunk_count} chunks` : doc.status}
+                  </Badge>
+                </div>
               ))}
-            </div>
-          )}
+              {docs.length === 0 && (
+                <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
-          {result.diagnostics && (
-            <p className="font-mono text-[11px] text-muted-foreground">
-              retrieved {result.diagnostics.chunks_retrieved} · used {result.diagnostics.chunks_used} · top
-              score {result.diagnostics.top_score ?? "—"} · threshold {result.diagnostics.threshold} ·{" "}
-              {result.diagnostics.latency_ms}ms
-              {result.diagnostics.reason ? ` · ${result.diagnostics.reason}` : ""}
-            </p>
-          )}
-        </section>
-      )}
-    </main>
+        {health && health.recent_queries.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent questions</CardTitle>
+              <CardDescription>
+                The latest employee queries and how they were resolved.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {health.recent_queries.map((q) => (
+                <div
+                  key={q.id}
+                  className="flex items-center justify-between border-b py-2 text-sm last:border-0"
+                >
+                  <span className="max-w-[70%] truncate">{q.question}</span>
+                  <Badge variant={q.status === "answered" ? "outline" : "secondary"}>
+                    {q.status}
+                  </Badge>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </AppShell>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string | number;
+  hint: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          {icon}
+          <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+        </div>
+        <div className="mt-2 text-2xl font-semibold">{value}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>
+      </CardContent>
+    </Card>
   );
 }

@@ -23,12 +23,12 @@ citation_chunk_ids MUST be chunk ids copied exactly from the supplied context.
 When the context contains a table, read the requested row/column pair carefully and state the exact cell value.`;
 
 function config() {
-  const apiKey = process.env["LLM_API_KEY"] ?? process.env["LOVABLE_API_KEY"];
+  const apiKey = process.env["LLM_API_KEY"];
   if (!apiKey) throw new LlmError("LLM API key is not configured.");
   return {
     apiKey,
-    baseUrl: process.env["LLM_BASE_URL"] ?? "https://ai.gateway.lovable.dev/v1",
-    model: process.env["LLM_MODEL"] ?? "google/gemini-3.6-flash",
+    baseUrl: process.env["LLM_BASE_URL"] ?? "https://api.openai.com/v1",
+    model: process.env["LLM_MODEL"] ?? "gpt-4o-mini",
   };
 }
 

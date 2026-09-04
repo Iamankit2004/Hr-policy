@@ -1,6 +1,7 @@
 /**
  * Embedding provider. Swappable via env: EMBEDDING_MODEL / EMBEDDING_BASE_URL.
- * Defaults to the Lovable AI Gateway (OpenAI-compatible /v1/embeddings).
+ * Works with any OpenAI-compatible /v1/embeddings endpoint — defaults to
+ * OpenAI's own API if EMBEDDING_BASE_URL is not set.
  */
 
 export const EMBEDDING_DIMENSIONS = 1536;
@@ -8,12 +9,12 @@ export const EMBEDDING_DIMENSIONS = 1536;
 export class EmbeddingError extends Error {}
 
 function config() {
-  const apiKey = process.env["LOVABLE_API_KEY"] ?? process.env["LLM_API_KEY"];
+  const apiKey = process.env["LLM_API_KEY"];
   if (!apiKey) throw new EmbeddingError("Embedding API key is not configured.");
   return {
     apiKey,
-    baseUrl: process.env["EMBEDDING_BASE_URL"] ?? "https://ai.gateway.lovable.dev/v1",
-    model: process.env["EMBEDDING_MODEL"] ?? "openai/text-embedding-3-small",
+    baseUrl: process.env["EMBEDDING_BASE_URL"] ?? "https://api.openai.com/v1",
+    model: process.env["EMBEDDING_MODEL"] ?? "text-embedding-3-small",
   };
 }
 

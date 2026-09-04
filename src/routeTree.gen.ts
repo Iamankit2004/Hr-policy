@@ -11,6 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AskRouteImport } from './routes/ask'
+import { Route as DocumentsRouteImport } from './routes/documents'
+import { Route as StatusRouteImport } from './routes/status'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +25,58 @@ const AdminRoute = AdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AskRoute = AskRouteImport.update({
+  id: '/ask',
+  path: '/ask',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentsRoute = DocumentsRouteImport.update({
+  id: '/documents',
+  path: '/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatusRoute = StatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/ask': typeof AskRoute
+  '/documents': typeof DocumentsRoute
+  '/status': typeof StatusRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/ask': typeof AskRoute
+  '/documents': typeof DocumentsRoute
+  '/status': typeof StatusRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/ask': typeof AskRoute
+  '/documents': typeof DocumentsRoute
+  '/status': typeof StatusRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin'
+  fullPaths: '/' | '/admin' | '/ask' | '/documents' | '/status'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin'
-  id: '__root__' | '/' | '/admin'
+  to: '/' | '/admin' | '/ask' | '/documents' | '/status'
+  id: '__root__' | '/' | '/admin' | '/ask' | '/documents' | '/status'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  AskRoute: typeof AskRoute
+  DocumentsRoute: typeof DocumentsRoute
+  StatusRoute: typeof StatusRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +95,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/ask': {
+      id: '/ask'
+      path: '/ask'
+      fullPath: '/ask'
+      preLoaderRoute: typeof AskRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/documents': {
+      id: '/documents'
+      path: '/documents'
+      fullPath: '/documents'
+      preLoaderRoute: typeof DocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/status': {
+      id: '/status'
+      path: '/status'
+      fullPath: '/status'
+      preLoaderRoute: typeof StatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  AskRoute: AskRoute,
+  DocumentsRoute: DocumentsRoute,
+  StatusRoute: StatusRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

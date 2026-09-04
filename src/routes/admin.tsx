@@ -1,234 +1,170 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRef, useState, type DragEvent } from "react";
+import { Sparkles, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  deleteDocument,
-  getAiStatus,
-  listDocuments,
-  recentQueries,
-  reindexDocument,
-  uploadDocument,
-} from "@/lib/rag/policy.functions";
+import { AppShell } from "@/components/app-shell";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { DocumentTable } from "@/components/document-table";
+import { useRole } from "@/lib/role-context";
+import { uploadPolicyDocument, loadDemoPolicies } from "@/lib/policy-pilot.functions";
 
 export const Route = createFileRoute("/admin")({
-  head: () => ({
-    meta: [
-      { title: "PolicyPilot Admin — Manage policy documents" },
-      {
-        name: "description",
-        content:
-          "Upload, re-index and remove HR policy documents, review the AI provider configuration and inspect recent question logs.",
-      },
-      { property: "og:title", content: "PolicyPilot Admin" },
-      { property: "og:description", content: "Manage the HR policy knowledge base powering PolicyPilot." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-    ],
-  }),
-  component: Admin,
+  component: AdminPage,
 });
 
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(binary);
-}
+const ACCEPTED = [".md", ".markdown", ".txt", ".pdf"];
 
-function Admin() {
-  const qc = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+function AdminPage() {
+  const { role } = useRole();
+  const queryClient = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [queue, setQueue] = useState<string[]>([]);
 
-  const docsFn = useServerFn(listDocuments);
-  const statusFn = useServerFn(getAiStatus);
-  const logsFn = useServerFn(recentQueries);
-  const uploadFn = useServerFn(uploadDocument);
-  const reindexFn = useServerFn(reindexDocument);
-  const deleteFn = useServerFn(deleteDocument);
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return uploadPolicyDocument({ data: formData });
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (result.status === "indexed") {
+        toast.success(`${result.filename} indexed`, {
+          description: `${result.chunks_created} chunks created.`,
+        });
+      } else {
+        toast.error(`Indexing failed for ${result.filename}`, { description: result.error });
+      }
+    },
+    onError: (error: Error) => toast.error("Upload failed", { description: error.message }),
+    onSettled: (_r, _e, file) => setQueue((prev) => prev.filter((name) => name !== file.name)),
+  });
 
-  const docs = useQuery({ queryKey: ["documents"], queryFn: () => docsFn() });
-  const ai = useQuery({ queryKey: ["ai-status"], queryFn: () => statusFn() });
-  const logs = useQuery({ queryKey: ["query-logs"], queryFn: () => logsFn() });
+  const demoMutation = useMutation({
+    mutationFn: () => loadDemoPolicies(),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (result.loaded.length) {
+        toast.success(`Loaded ${result.loaded.length} demo document(s)`, {
+          description: result.loaded.join(", "),
+        });
+      }
+      if (result.skipped.length) {
+        toast.info(`Skipped ${result.skipped.length} demo document(s)`, {
+          description: "Likely already indexed.",
+        });
+      }
+    },
+    onError: (error: Error) =>
+      toast.error("Could not load demo policies", { description: error.message }),
+  });
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["documents"] });
-    qc.invalidateQueries({ queryKey: ["query-logs"] });
+  const handleFiles = (files: FileList | null) => {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+      if (!ACCEPTED.includes(ext)) {
+        toast.error(`Unsupported file type: ${file.name}`, {
+          description: "Only .md, .txt and .pdf are accepted.",
+        });
+        continue;
+      }
+      setQueue((prev) => [...prev, file.name]);
+      uploadMutation.mutate(file);
+    }
   };
 
-  const upload = useMutation({
-    mutationFn: async (file: File) =>
-      uploadFn({
-        data: {
-          filename: file.name,
-          content_base64: toBase64(await file.arrayBuffer()),
-          mime: file.type || undefined,
-        },
-      }),
-    onSuccess: (result) => {
-      if (result.status === "indexed")
-        toast.success(`Indexed ${result.filename} — ${result.chunks_created} chunks (v${result.version})`);
-      else toast.error(result.error ?? "Indexing failed.");
-      refresh();
-    },
-    onError: (error: Error) => toast.error(error.message),
-    onSettled: () => {
-      if (fileRef.current) fileRef.current.value = "";
-    },
-  });
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragActive(false);
+    handleFiles(e.dataTransfer.files);
+  };
 
-  const reindex = useMutation({
-    mutationFn: (id: string) => reindexFn({ data: { document_id: id } }),
-    onMutate: (id: string) => setBusyId(id),
-    onSuccess: (result) => {
-      if (result.status === "indexed")
-        toast.success(`Re-indexed ${result.filename} — ${result.chunks_created} chunks`);
-      else toast.error(result.error ?? "Re-index failed.");
-      refresh();
-    },
-    onError: (error: Error) => toast.error(error.message),
-    onSettled: () => setBusyId(null),
-  });
-
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteFn({ data: { document_id: id } }),
-    onMutate: (id: string) => setBusyId(id),
-    onSuccess: () => {
-      toast.success("Document deleted");
-      refresh();
-    },
-    onError: (error: Error) => toast.error(error.message),
-    onSettled: () => setBusyId(null),
-  });
+  if (role !== "admin") return <Navigate to="/" />;
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-12">
-      <header className="mb-10 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Admin</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Manage the policy knowledge base. Supported formats: PDF, Markdown, plain text.
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/">Ask HR</Link>
-        </Button>
-      </header>
-
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="text-base">AI provider</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1 text-sm text-muted-foreground">
-          {ai.data ? (
-            <>
-              <div className="flex items-center gap-2">
-                <span>API key:</span>
-                <Badge variant={ai.data.configured ? "default" : "destructive"}>
-                  {ai.data.configured ? "configured" : "missing"}
-                </Badge>
-              </div>
-
-              <p className="font-mono text-xs">chat: {ai.data.chat_model}</p>
-              <p className="font-mono text-xs">embeddings: {ai.data.embedding_model}</p>
-              <p className="font-mono text-xs">endpoint: {ai.data.base_url}</p>
-              <p className="text-xs">
-                Override with the <code>LLM_MODEL</code>, <code>LLM_BASE_URL</code>,{" "}
-                <code>LLM_API_KEY</code> and <code>EMBEDDING_MODEL</code> environment variables to swap
-                providers.
-              </p>
-            </>
-          ) : (
-            <p>Checking configuration…</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="text-base">Upload a policy document</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.md,.markdown,.txt,application/pdf,text/plain,text/markdown"
-            disabled={upload.isPending}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) upload.mutate(file);
-            }}
-            className="text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-foreground"
-          />
-          {upload.isPending && <span className="text-sm text-muted-foreground">Indexing…</span>}
-        </CardContent>
-      </Card>
-
-      <section className="mb-10 space-y-3">
-        <h2 className="text-sm font-medium text-foreground">Indexed documents</h2>
-        {docs.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {docs.data?.length === 0 && (
-          <p className="text-sm text-muted-foreground">No documents yet. Upload one to get started.</p>
-        )}
-        {docs.data?.map((doc) => (
-          <Card key={doc.id}>
-            <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  {doc.filename} <span className="text-muted-foreground">v{doc.version}</span>
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {doc.file_type.toUpperCase()} · {doc.chunk_count} chunks ·{" "}
-                  {(doc.byte_size / 1024).toFixed(0)} KB
-                  {doc.error_message ? ` · ${doc.error_message}` : ""}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={doc.status === "indexed" ? "default" : doc.status === "error" ? "destructive" : "secondary"}>
-                  {doc.status}
-                </Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busyId === doc.id}
-                  onClick={() => reindex.mutate(doc.id)}
-                >
-                  {busyId === doc.id && reindex.isPending ? "Re-indexing…" : "Re-index"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busyId === doc.id}
-                  onClick={() => remove.mutate(doc.id)}
-                >
-                  Delete
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-foreground">Recent questions</h2>
-        {logs.data?.length === 0 && <p className="text-sm text-muted-foreground">No questions yet.</p>}
-        <div className="space-y-1">
-          {logs.data?.map((log) => (
-            <p key={log.id} className="font-mono text-[11px] text-muted-foreground">
-              [{log.status}] {log.question || "—"} · score {log.top_score ?? "—"} · {log.citations_count}{" "}
-              citations · {log.latency_ms}ms
+    <AppShell>
+      <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Admin / Upload</h1>
+            <p className="mt-1 text-muted-foreground">
+              Upload, index, and manage HR policy documents.
             </p>
-          ))}
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => demoMutation.mutate()}
+            disabled={demoMutation.isPending}
+          >
+            <Sparkles className="mr-1.5 h-4 w-4" />
+            {demoMutation.isPending ? "Loading demo policies…" : "Load demo policies"}
+          </Button>
         </div>
-      </section>
-    </main>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragActive(true);
+              }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={onDrop}
+              onClick={() => inputRef.current?.click()}
+              className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-10 text-center transition-colors ${
+                dragActive
+                  ? "border-primary bg-primary/5"
+                  : "border-muted-foreground/25 hover:border-muted-foreground/40"
+              }`}
+            >
+              <UploadCloud className="mb-3 h-8 w-8 text-muted-foreground" />
+              <p className="font-medium">Drag & drop policy documents here</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                or click to browse — .md, .txt, .pdf (max 5 MB)
+              </p>
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                accept={ACCEPTED.join(",")}
+                className="hidden"
+                onChange={(e) => {
+                  handleFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+
+            {queue.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {queue.map((name) => (
+                  <div key={name} className="flex items-center gap-3 text-sm">
+                    <span className="w-40 truncate">{name}</span>
+                    <Progress value={66} className="h-1.5 flex-1" />
+                    <span className="text-xs text-muted-foreground">Indexing…</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Policy Documents</CardTitle>
+            <CardDescription>View, re-index, or delete uploaded documents.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DocumentTable canManage />
+          </CardContent>
+        </Card>
+      </div>
+    </AppShell>
   );
 }
